@@ -301,21 +301,24 @@ class VrccClient(
     }
 
     /** 点亮 / 取消点亮。需要 `posts.write`。`on` 用 JSON 的 true / false，`false` 就是取消。 */
-    suspend fun light(id: Long, on: Boolean = true): JsonObject =
+    suspend fun light(id: Long, on: Boolean = true): LightResp =
         call(
             "POST",
             "me/posts/$id/light",
             buildJsonObject { put("on", JsonPrimitive(on)) }.toString(),
             true,
-            JsonObject.serializer(),
+            LightResp.serializer(),
         )
 
-    /** 发一条星友圈。官方限制：只能发文字。需要 `posts.write`。 */
+    /** 发一条星友圈。官方限制：只能发文字，`kind` 必填且只能是 `text`。需要 `posts.write`。 */
     suspend fun writePost(text: String): JsonObject =
         call(
             "POST",
             "me/posts",
-            buildJsonObject { put("text", JsonPrimitive(text)) }.toString(),
+            buildJsonObject {
+                put("kind", JsonPrimitive("text"))
+                put("text", JsonPrimitive(text))
+            }.toString(),
             true,
             JsonObject.serializer(),
         )

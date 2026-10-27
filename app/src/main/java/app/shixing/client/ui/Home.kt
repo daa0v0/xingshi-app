@@ -77,18 +77,11 @@ import app.shixing.client.data.Groups
 import app.shixing.client.data.Msg
 import app.shixing.client.data.StarCard
 import app.shixing.client.data.Thread
-import app.shixing.client.legacy.AccountScreen
-import app.shixing.client.legacy.BagScreen
-import app.shixing.client.legacy.LegacyLoginScreen
-import app.shixing.client.legacy.LegacyViewModel
-import app.shixing.client.legacy.RedeemScreen
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.aspectRatio
-import app.shixing.client.legacy.childObj
-import app.shixing.client.legacy.str
 
 /**
  * 五个页面，和网页的底栏一致：今天 / 连向我 / 星轨 / 星友圈 / 我的。
@@ -102,13 +95,6 @@ fun Home(vm: MainViewModel) {
     var tab by rememberSaveable { mutableStateOf(0) }
     var boardOpen by rememberSaveable { mutableStateOf(false) }
     var chatOpen by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val legacyVm: LegacyViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        factory = LegacyViewModel.factory(context),
-    )
-    val legacyState by legacyVm.state.collectAsStateWithLifecycle()
-    var legacyRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
     state.hint?.let { h ->
         LaunchedEffect(h) {
@@ -154,39 +140,12 @@ fun Home(vm: MainViewModel) {
                 Spacer(Modifier.height(2.dp))
             }
 
-            LaunchedEffect(legacyRoute, state.star) {
-                if (legacyRoute == "starcard") state.star?.let { legacyVm.loadPhoto(it.toLong()) }
-            }
-
             val chatPeer = chatOpen
             when {
-                legacyState.showLogin -> LegacyLoginScreen(
-                    onCaptured = { legacyVm.saveKey(it) },
-                    onClose = { legacyVm.closeLogin() },
-                )
-                legacyRoute == "redeem" -> RedeemScreen(legacyVm) { legacyRoute = null; legacyVm.dismissHint() }
-                legacyRoute == "bag" -> BagScreen(legacyVm) { legacyRoute = null }
-                legacyRoute == "account" -> AccountScreen(legacyVm) { legacyRoute = null }
-                legacyRoute == "deco" -> DecoEditorScreen(
-                    state = legacyState,
-                    onFace = { legacyVm.equipFace(it) },
-                    onBack = { legacyVm.equipBack(it) },
-                    onSleeve = { legacyVm.equipSleeve(it) },
-                    onClose = { legacyRoute = null },
-                    onLogin = { legacyVm.openLogin() },
-                    onSave = { f, b, s -> legacyVm.equipAll(f, b, s) },
-                )
-                legacyRoute == "starcard" -> MyCardScreen(
-                    card = state.card,
-                    photoUrl = legacyState.photoUrl,
-                    faceLabel = null,
-                    onBack = { legacyRoute = null },
-                )
                 !state.session -> ConnectPage(vm, state)
                 boardOpen -> BoardPage(
                     maps = state.boards,
                     onBack = { boardOpen = false },
-                    onRate = { world -> vm.openMap(world) { } },
                     vm = vm,
                 )
                 chatPeer != null -> ChatPage(
@@ -195,10 +154,10 @@ fun Home(vm: MainViewModel) {
                 photoUrl = state.cardPhotos[chatPeer]?.url,
                 photoGrid = state.cardPhotos[chatPeer]?.grid,
             ) { chatOpen = null }
-                tab == 0 -> TodayPage(vm, state, legacyVm)
-                tab == 1 -> InboxPage(vm, state, legacyVm, onOpenChat = { n -> chatOpen = n })
-                tab == 2 -> PostsScreen(vm, state, legacyVm)
-                else -> MePage(vm, state, onOpenBoard = { boardOpen = true }, onOpenChat = { n -> chatOpen = n }, onOpenLegacy = { legacyRoute = it }, onOpenCard = { legacyRoute = "starcard" }, onOpenDeco = { legacyRoute = "deco" }, photoUrl = (state.card?.myStarId()?.let { state.cardPhotos[it]?.url }) ?: legacyState.photoUrl, photoGrid = state.card?.myStarId()?.let { state.cardPhotos[it]?.grid }, decoOverride = legacyState.deco, currentWorld = (legacyState.me?.childObj("me")?.childObj("xd")?.childObj("world")?.str("id")), currentWorldName = (legacyState.me?.childObj("me")?.childObj("xd")?.childObj("world")?.str("name")))
+                tab == 0 -> TodayPage(vm, state)
+                tab == 1 -> InboxPage(vm, state, onOpenChat = { n -> chatOpen = n })
+                tab == 2 -> PostsScreen(vm, state)
+                else -> MePage(vm, state, onOpenBoard = { boardOpen = true }, onOpenChat = { n -> chatOpen = n }, photoUrl = state.card?.myStarId()?.let { state.cardPhotos[it]?.url }, photoGrid = state.card?.myStarId()?.let { state.cardPhotos[it]?.grid })
             }
         }
     }
@@ -303,7 +262,7 @@ private fun ConnectPage(vm: MainViewModel, s: UiState) {
         Spacer(Modifier.height(12.dp))
         Text("拾星", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = MaterialTheme_color.accent)
         Spacer(Modifier.height(4.dp))
-        Text("一个只读官方接口的第三方客户端", fontSize = 13.sp, color = MaterialTheme_color.ink2)
+        Text("只用官方开放接口的第三方客户端（非官方）", fontSize = 13.sp, color = MaterialTheme_color.ink2)
         Spacer(Modifier.height(18.dp))
 
         BoxCard {
@@ -432,14 +391,9 @@ private fun left(sec: Int): String {
 // ---------------- 今天 ----------------
 
 @Composable
-private fun TodayPage(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
-    val legacyState by legacyVm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(s.today?.cards) {
-        legacyVm.loadPhotos(s.today?.cards?.map { it.n } ?: emptyList())
-    }
+private fun TodayPage(vm: MainViewModel, s: UiState) {
     val t = s.today
-    // 网页接口的卡带装扮与共同点，优先用；拿不到再退回 v1 的卡。
-    val cards = legacyState.recs.ifEmpty { t?.cards.orEmpty() }
+    val cards = t?.cards.orEmpty()
     var subTab by remember { mutableStateOf(0) }
     val pager = androidx.compose.foundation.pager.rememberPagerState(pageCount = { cards.size })
     val scope = rememberCoroutineScope()
@@ -512,7 +466,7 @@ private fun TodayPage(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) 
                 ) {
                     FlippableStarCard(
                         face = c.toFace().copy(overlap = overlapOf(s.card?.scores?.asMap(), c.scores)),
-                        photoUrl = s.cardPhotos[c.n]?.url ?: legacyState.photos[c.n],
+                        photoUrl = s.cardPhotos[c.n]?.url,
                 photoGrid = s.cardPhotos[c.n]?.grid,
                         modifier = Modifier.fillMaxHeight(),
                         intro = c.intro,
@@ -676,14 +630,9 @@ private fun SayDialog(name: String, onDismiss: () -> Unit, onSend: (String) -> U
 private fun InboxPage(
     vm: MainViewModel,
     s: UiState,
-    legacyVm: LegacyViewModel,
     onOpenChat: (Long) -> Unit,
     onSeeAll: () -> Unit = {},
 ) {
-    val legacyState by legacyVm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(s.inbox?.cards) {
-        legacyVm.loadPhotos(s.inbox?.cards?.map { it.n } ?: emptyList())
-    }
     val i = s.inbox
     val counts = i?.counts.orEmpty()
     fun n(key: String): Int? = counts[key]?.let {
@@ -694,7 +643,7 @@ private fun InboxPage(
         n("out")?.let { add("我连出 $it") }
         n("mutual")?.let { add("互相连上 $it") }
     }.joinToString(" · ")
-    val cards = legacyState.inbox.ifEmpty { i?.cards.orEmpty() }
+    val cards = i?.cards.orEmpty()
     val pager = androidx.compose.foundation.pager.rememberPagerState(pageCount = { cards.size })
     var subTab by remember { mutableStateOf(0) }
     var expandedThreads by remember { mutableStateOf(false) }
@@ -780,7 +729,7 @@ private fun InboxPage(
             previewStar?.let { c ->
                 CardPreviewDialog(
                     card = c,
-                    photoUrl = s.cardPhotos[c.n]?.url ?: legacyState.photos[c.n],
+                    photoUrl = s.cardPhotos[c.n]?.url,
                     photoGrid = s.cardPhotos[c.n]?.grid,
                     onDismiss = { previewStar = null },
                 )
@@ -906,7 +855,7 @@ private fun InboxPage(
                 androidx.compose.runtime.key(c.n) {
                 FlippableStarCard(
                     face = c.toFace().copy(overlap = overlapOf(s.card?.scores?.asMap(), c.scores)),
-                    photoUrl = s.cardPhotos[c.n]?.url ?: legacyState.photos[c.n],
+                    photoUrl = s.cardPhotos[c.n]?.url,
                     photoGrid = s.cardPhotos[c.n]?.grid,
                     modifier = Modifier
                         .fillMaxWidth(0.86f)

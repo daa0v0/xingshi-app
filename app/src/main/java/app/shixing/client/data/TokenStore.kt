@@ -71,14 +71,14 @@ class TokenStore(private val context: Context) {
     }
 
     /**
-     * 个人接口的本地日配额：四个接口合计每天 300 次（官方限制）。
-     * 本地先扣，宁可少问也不越界。
+     * 「第一份读」的本地日配额：最近的提醒、星轨相交、互相连上、所在的地图、我打过分的地图
+     * 合计每天 300 次（官方是每个授权每天 1000 次，本地从严）。本地先扣，宁可少问也不越界。
+     * 提醒轮询（`me/notifications`）官方没有每天上限、只要求两次间隔 25 秒，不在这里扣。
      */
     suspend fun takeDailyQuota(amount: Int = 1): Boolean {
         var allowed = false
         context.dataStore.edit { p ->
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                .format(java.util.Date())
+            val today = beijingDay()
             val sameDay = p[K.dailyDate] == today
             val used = if (sameDay) (p[K.dailyCount] ?: 0) else 0
             if (used + amount <= 300) {
@@ -92,8 +92,12 @@ class TokenStore(private val context: Context) {
 
     suspend fun dailyUsed(): Int {
         val p = context.dataStore.data.first()
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            .format(java.util.Date())
-        return if (p[K.dailyDate] == today) (p[K.dailyCount] ?: 0) else 0
+        return if (p[K.dailyDate] == beijingDay()) (p[K.dailyCount] ?: 0) else 0
     }
+
+    /** 官方每天的次数在北京时间零点重置，本地的日期也按北京时间算，不跟着手机时区走。 */
+    private fun beijingDay(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("Asia/Shanghai") }
+            .format(java.util.Date())
 }

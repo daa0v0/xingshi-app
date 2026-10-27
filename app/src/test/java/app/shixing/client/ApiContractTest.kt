@@ -291,6 +291,34 @@ class ApiContractTest {
     }
 
     @Test
+    fun light_readsLitAndLitMeBack() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"post":{"id":1,"lit":3,"litMe":true,"cmts":0}}"""))
+        val r = client("tok").light(1, on = true)
+        assertEquals(3, r.post?.lit)
+        assertEquals(true, r.post?.litMe)
+    }
+
+    @Test
+    fun writePost_sendsRequiredKindText() = runBlocking {
+        // openapi：POST me/posts 的正文 required: [kind, text]，kind 只能是 "text"。
+        server.enqueue(MockResponse().setBody("""{"ok":true,"post":{"id":9}}"""))
+        client("tok").writePost("你好")
+        val req = server.takeRequest()
+        assertEquals("/api/v1/me/posts", req.path)
+        assertEquals("""{"kind":"text","text":"你好"}""", req.body.readUtf8())
+    }
+
+    @Test
+    fun defaultScope_asksOnlyForWhatTheAppUses() {
+        val scopes = app.shixing.client.data.Repository.DEFAULT_SCOPE.split(' ').toSet()
+        // 点亮、发动态要 posts.write；没做的功能不申请（使用要求第 10 条）。
+        assertTrue("posts.write" in scopes)
+        assertFalse("vrchat" in scopes)
+        assertFalse("safety" in scopes)
+        assertFalse("maps.write" in scopes)
+    }
+
+    @Test
     fun mark_onlyWhenAsked() = runBlocking {
         repeat(4) { server.enqueue(MockResponse().setBody("{}")) }
         val c = client("tok")

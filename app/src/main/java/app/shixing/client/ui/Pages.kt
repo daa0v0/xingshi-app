@@ -187,112 +187,6 @@ private fun whyText(why: String?): String? = when (why) {
     else -> null
 }
 
-// ---------------- 星友圈 ----------------
-
-@Composable
-fun PostsPage(vm: MainViewModel, s: UiState) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(10.dp))
-        ScreenTitle("星友圈", "大家发在星遇同频里的动态")
-        PageError(vm, s, "posts")
-        Spacer(Modifier.height(10.dp))
-        WritePostCard(vm)
-        Spacer(Modifier.height(10.dp))
-        if (s.posts.isEmpty()) {
-            Empty("还没有动态。")
-        } else {
-            s.posts.forEach { p ->
-                BoxCard(tint = Color(Groups.color(p.author?.group))) {
-                    val who = p.author?.name ?: if (p.kind == "official") "星遇同频" else "一颗星"
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(who, p.author?.group, 32.dp)
-                        Spacer(Modifier.width(9.dp))
-                        Text(
-                            who,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme_color.ink,
-                        )
-                        p.author?.group?.let {
-                            Spacer(Modifier.width(6.dp))
-                            GroupPill(it)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Text(clock(p.at), fontSize = 11.sp, color = MaterialTheme_color.ink2)
-                    }
-                    p.text?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Text(it, fontSize = 13.sp, color = MaterialTheme_color.ink, lineHeight = 20.sp)
-                    }
-                    p.imgUrl?.let { url ->
-                        Spacer(Modifier.height(10.dp))
-                        AsyncImage(
-                            model = url,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 280.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme_color.card2),
-                        )
-                    }
-                    if (p.check == "wait" || p.check == "hidden") {
-                        Spacer(Modifier.height(6.dp))
-                        Pill(
-                            if (p.check == "wait") "审核中" else "未通过",
-                            Color(0x1FFFFFFF),
-                            MaterialTheme_color.ink2,
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val lit = p.lit
-                        Row(
-                            Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { vm.light(p.id, true) }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Filled.ThumbUp,
-                                contentDescription = "点亮",
-                                tint = if (lit > 0) MaterialTheme_color.accent else MaterialTheme_color.ink3,
-                                modifier = Modifier.size(14.dp),
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text("$lit", fontSize = 12.sp, color = MaterialTheme_color.ink2)
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Text("评论 ${p.cmts}", fontSize = 12.sp, color = MaterialTheme_color.ink2)
-                        Spacer(Modifier.weight(1f))
-                        if (p.author != null && !p.mine) {
-                            Text(
-                                "连上",
-                                Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { vm.link(p.author!!.n, "yq", p.id) { m -> vm.showHint(m) } }
-                                    .background(Color(0x1F4DB4FF))
-                                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                                fontSize = 12.sp,
-                                color = MaterialTheme_color.accent,
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-    }
-}
-
 // ---------------- 我的 ----------------
 
 @Composable
@@ -301,14 +195,8 @@ fun MePage(
     s: UiState,
     onOpenBoard: () -> Unit,
     onOpenChat: (Long) -> Unit,
-    onOpenLegacy: (String) -> Unit = {},
-    onOpenCard: () -> Unit = {},
-    onOpenDeco: () -> Unit = {},
     photoUrl: String? = null,
     photoGrid: android.graphics.Bitmap? = null,
-    decoOverride: kotlinx.serialization.json.JsonObject? = null,
-    currentWorld: String? = null,
-    currentWorldName: String? = null,
 ) {
     Column(
         Modifier
@@ -316,58 +204,6 @@ fun MePage(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
-
-        // 去过但还没打分的地图：提醒一次，当天可关掉
-        currentWorld?.let { world ->
-            val rated = s.myMaps.any { it.world == world }
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            var hidden by remember(world) {
-                mutableStateOf(app.shixing.client.data.RateHint.dismissed(ctx, world))
-            }
-            if (!rated && !hidden) {
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0x1F4DB4FF))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "你在「${currentWorldName ?: "这张地图"}」，还没打分",
-                            fontSize = 12.5.sp,
-                            color = MaterialTheme_color.ink,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text("打一分只要几秒，也能帮到后面的人。", fontSize = 11.sp, color = MaterialTheme_color.ink2)
-                    }
-                    Text(
-                        "去打分",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme_color.accent,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { vm.openMap(world) { } }
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
-                    )
-                    Text(
-                        "关闭",
-                        fontSize = 12.sp,
-                        color = MaterialTheme_color.ink2,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                app.shixing.client.data.RateHint.dismiss(ctx, world)
-                                hidden = true
-                            }
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
-                    )
-                }
-            }
-        }
         Spacer(Modifier.height(10.dp))
         ScreenTitle("我的")
 
@@ -377,10 +213,7 @@ fun MePage(
         s.card?.let { c ->
             Spacer(Modifier.height(12.dp))
             FlippableStarCard(
-                face = c.toFace().let { f ->
-                    // 装扮是自己改的，v1 的卡不带 deco，这里用网页接口那份覆盖
-                    app.shixing.client.data.DecoCatalog.parse(decoOverride)?.let { f.copy(deco = it) } ?: f
-                },
+                face = c.toFace(),
                 photoUrl = photoUrl,
                 photoGrid = photoGrid,
                 modifier = Modifier.fillMaxWidth(),
@@ -388,26 +221,6 @@ fun MePage(
             )
         }
 
-        Spacer(Modifier.height(12.dp))
-        BoxCard {
-            Text(
-                "网页功能",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme_color.ink,
-            )
-            Text(
-                "装扮和仓库这些官方接口还没开放，走的是网页自己的接口。",
-                fontSize = 11.sp,
-                color = MaterialTheme_color.ink3,
-                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
-            )
-            LegacyRow("装扮", "卡面、卡背") { onOpenDeco() }
-            // 其余三项还没验收完，先藏起来；清单见 docs/TODO.md
-            if (WebFeatures.ALL) LegacyRow("我的仓库", "贴纸包、卡面、星尘") { onOpenLegacy("bag") }
-            if (WebFeatures.ALL) LegacyRow("兑换码", "兑换贴纸包和装扮") { onOpenLegacy("redeem") }
-            if (WebFeatures.ALL) LegacyRow("账号与设备", "看登录的设备、踢掉别人") { onOpenLegacy("account") }
-        }
         // 私聊列表也要照片：这里给每个会话的对方拉一次头像
         androidx.compose.runtime.LaunchedEffect(s.threads.map { it.peer?.n }) {
             s.threads.forEach { th ->
@@ -639,12 +452,25 @@ fun MePage(
 fun BoardPage(
     maps: List<BoardMap>,
     onBack: () -> Unit,
-    onRate: (String) -> Unit,
     vm: MainViewModel,
     showBack: Boolean = true,
 ) {
     var sel by remember { mutableStateOf<MyMap?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    /** 先拿「我在这张图上的分」，再打开打分框；`off` 的图不给这位玩家看，也就不打开。 */
+    fun open(world: String) {
+        if (busy) return
+        busy = true
+        vm.openMap(world) { r ->
+            busy = false
+            when {
+                r == null -> Unit // 出错时 openMap 已经把原因放进提示条
+                r.off -> vm.showHint("这张地图不给你打分")
+                else -> sel = r
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -670,7 +496,7 @@ fun BoardPage(
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "有人评分就会进榜；点一张地图可以看我给它的分。",
+            "有人评分就会进榜；点一张地图可以看我给它的分、给它打分。",
             fontSize = 12.sp,
             color = MaterialTheme_color.ink2,
         )
@@ -678,7 +504,7 @@ fun BoardPage(
 
         LazyColumn(Modifier.fillMaxSize()) {
             items(maps) { m ->
-                Surface2 {
+                Surface2(onClick = { open(m.world) }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "#${m.rank ?: "-"}",
@@ -739,13 +565,20 @@ fun BoardPage(
 }
 
 @Composable
-private fun Surface2(content: @Composable () -> Unit) {
+private fun Surface2(onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
     androidx.compose.material3.Surface(
         color = MaterialTheme_color.card,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, MaterialTheme_color.line),
         modifier = Modifier.fillMaxWidth(),
-    ) { Box(Modifier.padding(12.dp)) { content() } }
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(12.dp),
+        ) { content() }
+    }
 }
 
 // ---------------- 打分框 ----------------
@@ -925,7 +758,13 @@ fun ChatPage(
                     val t = input
                     input = ""
                     vm.send(peer, t) { err ->
-                        if (err.isNotEmpty()) vm.showHint(err) else bump++
+                        if (err.isEmpty()) {
+                            bump++
+                        } else {
+                            vm.showHint(err)
+                            // 没发出去（比如没过检查）：把草稿放回去，免得玩家重打。
+                            if (input.isEmpty()) input = t
+                        }
                     }
                 },
                 enabled = input.isNotBlank(),
@@ -1020,6 +859,8 @@ fun WritePostCard(vm: MainViewModel) {
                             if (msg == "ok") {
                                 text = ""
                                 open = false
+                            } else {
+                                vm.showHint(msg)
                             }
                         }
                     },
@@ -1032,28 +873,4 @@ fun WritePostCard(vm: MainViewModel) {
             }
         }
     }
-}
-
-@Composable
-private fun LegacyRow(title: String, sub: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, color = MaterialTheme_color.ink)
-            Text(sub, fontSize = 11.sp, color = MaterialTheme_color.ink3, modifier = Modifier.padding(top = 2.dp))
-        }
-        Text("›", fontSize = 18.sp, color = MaterialTheme_color.ink3)
-    }
-}
-
-/** 「网页功能」里还没验收完的入口：先关掉，清单见 docs/TODO.md。 */
-object WebFeatures {
-    /** 我的仓库 / 兑换码 / 账号与设备 */
-    const val ALL = false
 }

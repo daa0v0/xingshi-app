@@ -19,7 +19,6 @@ android {
         resourceConfigurations += listOf("zh", "zh-rCN")
         buildConfigField("String", "CLIENT_ID", "\"app_f91c740693315463\"")
         buildConfigField("String", "API_BASE", "\"https://vrcc.cc/api/v1/\"")
-        buildConfigField("String", "LEGACY_BASE", "\"https://vrcc.cc/api/match\"")
         buildConfigField("String", "SOURCE_URL", "\"https://github.com/daa0v0/xingshi-app\"")
     }
 

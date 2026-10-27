@@ -98,23 +98,6 @@ class Repository(private val store: TokenStore) {
         return api.myMap(world)
     }
 
-    /**
-     * 轮询提醒。第一次不带 since（只拿 last），之后带上次的 last；
-     * 两次之间至少 25 秒，优先按服务器给的 every。
-     */
-    suspend fun pollNotifications(): Notifications {
-        val last = store.lastNotif()
-        val sinceLast = System.currentTimeMillis() - store.lastPollAt()
-        val gap = if (last == null) 1_000L else 25_000L
-        if (sinceLast in 0 until gap) kotlinx.coroutines.delay(gap - sinceLast)
-        if (!store.takeDailyQuota()) throw ApiException(429, "local_quota")
-        Throttle.acquire("notifications", 25_000)
-        val r = api.notifications(last)
-        r.last?.let { store.setLastNotif(it) }
-        store.setLastPollAt(System.currentTimeMillis())
-        return r
-    }
-
     /** 只在玩家点「提交」时调用。 */
     suspend fun rate(world: String, score: Int, text: String?): MyMap {
         Throttle.acquire("rate:$world", 5_000)
@@ -156,8 +139,9 @@ class Repository(private val store: TokenStore) {
         return api.say(n, text)
     }
 
-    /** TA 的照片：清晰图给 url，没连上只给 grid（N×N 像素格）。 */
+    /** TA 的照片：清晰图给 url，没连上只给 grid（N×N 像素格）。和别的接口一样走限流。 */
     suspend fun photo(n: Long): CardPhoto? = runCatching {
+        Throttle.acquire("photo:$n", 3_000)
         PhotoParser.parse(api.photo(n, 2))
     }.getOrNull()
 
@@ -183,7 +167,7 @@ class Repository(private val store: TokenStore) {
     }
 
     /** 点亮/取消。写操作只在玩家点击时调用。 */
-    suspend fun light(id: Long, on: Boolean = true): kotlinx.serialization.json.JsonObject {
+    suspend fun light(id: Long, on: Boolean = true): LightResp {
         Throttle.acquire("light", 2_000)
         return api.light(id, on)
     }
@@ -201,13 +185,15 @@ class Repository(private val store: TokenStore) {
 
     companion object {
         /**
-         * 要申请的权限。
+         * 要申请的权限：只要界面上真的用到的（《使用要求》第 10 条，同意页会逐项列出）。
          * - 普通：profile、card、maps、notifications
-         * - 敏感：crossings、mutuals、maps.rate、today、inbox、link、chat、chat.send、posts
+         * - 敏感：maps.rate（打分）、crossings、mutuals、today、inbox、link（连线、说一句）、
+         *   chat、chat.send、posts、posts.write（点亮、发动态）、photos
          *   未审核的自助登记应用里，敏感权限只有登记人本人能同意。
+         * 以后做了举报 / 隐藏再加 safety；vrchat、maps.write 现在没有用到的地方。
          */
         const val DEFAULT_SCOPE =
             "profile card maps maps.rate notifications crossings mutuals today inbox link chat chat.send posts " +
-                "photos vrchat safety maps.write"
+                "posts.write photos"
     }
 }

@@ -50,6 +50,8 @@ data class UiState(
     val today: TodayResp? = null,
     val inbox: InboxResp? = null,
     val posts: List<Post> = emptyList(),
+    /** 星友圈现在看的是哪一份：all / friend / mine。 */
+    val postsFilter: String = "all",
     val card: MyCard? = null,
     val myMaps: List<MyRating> = emptyList(),
     val threads: List<Thread> = emptyList(),
@@ -69,7 +71,6 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
 
     init {
         checkUpdate(manual = false)
-        viewModelScope.launch { syncStickerToken() }
         viewModelScope.launch { repo.lost.collect { sessionLost() } }
         viewModelScope.launch { SignedImages.expired.collect { imageExpired(it) } }
         viewModelScope.launch {
@@ -82,10 +83,6 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
                 loadBoards()
             }
         }
-    }
-
-    private suspend fun syncStickerToken() {
-        app.shixing.client.ui.StickerImages.token = repo.storeToken()
     }
 
     /** 令牌失效（`404 gone`）：Repository 已经删了本机令牌，这里回到连接页。 */
@@ -144,13 +141,13 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
             _state.update { it.copy(inbox = i) }
         }.onFailure { errs["inbox"] = describe(it) }
 
-        runCatching { repo.posts() }.onSuccess { p ->
+        runCatching { repo.posts(_state.value.postsFilter) }.onSuccess { p ->
             _state.update { it.copy(posts = p.posts) }
         }.onFailure { errs["posts"] = describe(it) }
 
         runCatching { repo.card() }.onSuccess { c ->
             _state.update { it.copy(card = c) }
-            (c.n ?: c.star)?.toLong()?.let { loadPhoto(it) }
+            c.myStarId()?.let { loadPhoto(it) }
         }.onFailure { errs["card"] = describe(it) }
 
         runCatching { repo.myMaps() }.onSuccess { m ->
@@ -205,10 +202,7 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
 
     fun refreshToday() = viewModelScope.launch {
         runCatching { repo.today() }
-            .onSuccess { t ->
-                android.util.Log.d("shixing-deco", "v1 today deco=" + t.cards.take(4).map { c -> c.n to c.deco })
-                _state.update { it.copy(today = t, pageErrors = it.pageErrors - "today") }
-            }
+            .onSuccess { t -> _state.update { it.copy(today = t, pageErrors = it.pageErrors - "today") } }
             .onFailure { e -> _state.update { it.copy(pageErrors = it.pageErrors + ("today" to describe(e))) } }
     }
 
@@ -218,9 +212,17 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
             .onFailure { e -> _state.update { it.copy(pageErrors = it.pageErrors + ("inbox" to describe(e))) } }
     }
 
-    fun refreshPosts(filter: String = "all") = viewModelScope.launch {
+    /** 星友圈按 `f`（all / friend / mine）在服务器那边筛，筛选记在状态里，刷新时沿用。 */
+    fun refreshPosts(filter: String = _state.value.postsFilter) = viewModelScope.launch {
+        _state.update { it.copy(postsFilter = filter) }
         runCatching { repo.posts(filter) }
-            .onSuccess { p -> _state.update { it.copy(posts = p.posts, pageErrors = it.pageErrors - "posts") } }
+            .onSuccess { p ->
+                _state.update {
+                    // 等回话的时候又换了筛选：这份已经不是现在要看的了。
+                    if (it.postsFilter != filter) it
+                    else it.copy(posts = p.posts, pageErrors = it.pageErrors - "posts")
+                }
+            }
             .onFailure { e -> _state.update { it.copy(pageErrors = it.pageErrors + ("posts" to describe(e))) } }
     }
 
@@ -253,17 +255,19 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
             .onFailure { e -> _state.update { it.copy(pageErrors = it.pageErrors + ("card" to describe(e))) } }
     }
 
-    /** 点亮一条动态：先本地加一，失败就把数字改回去。 */
-    fun light(id: Long, on: Boolean = true) = viewModelScope.launch {
-        _state.update { s: UiState ->
-            s.copy(posts = s.posts.map { p -> if (p.id == id) p.copy(lit = p.lit + if (on) 1 else -1) else p })
-        }
+    /**
+     * 点亮 / 取消一条动态：按 `litMe` 决定这次是哪一个。先本地改，
+     * 服务器回话后以回答里的 `lit` / `litMe` 为准，失败就改回去。
+     */
+    fun toggleLight(id: Long) = viewModelScope.launch {
+        val before = _state.value.posts.firstOrNull { it.id == id } ?: return@launch
+        val on = !before.litMe
+        fun put(p: Post) = _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) p else it }) }
+        put(before.copy(litMe = on, lit = (before.lit + if (on) 1 else -1).coerceAtLeast(0)))
         runCatching { repo.light(id, on) }
-            .onSuccess { showHint("已点亮") }
+            .onSuccess { r -> r.post?.let { p -> put(before.copy(lit = p.lit, litMe = p.litMe)) } }
             .onFailure { e ->
-                _state.update { s: UiState ->
-                    s.copy(posts = s.posts.map { p -> if (p.id == id) p.copy(lit = p.lit - if (on) 1 else -1) else p })
-                }
+                put(before)
                 showHint(describe(e))
             }
     }
@@ -301,10 +305,33 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
             .onFailure { e -> onDone(describe(e)) }
     }
 
-    /** 取 TA 的照片（只在卡上显示，不落盘）。 */
-    fun loadPhoto(n: Long) = viewModelScope.launch {
-        val p = repo.photo(n) ?: return@launch
-        _state.update { it.copy(cardPhotos = it.cardPhotos + (n to p)) }
+    /** 正在拿的照片：同一颗星同时只问一次（列表里同一个人出现好几次也一样）。 */
+    private val photoLoading = HashSet<Long>()
+
+    /** 拿不到照片的星（没有 photos 权限、16–17 星池、出错）：这段时间内不再问。 */
+    private val photoMissedAt = HashMap<Long, Long>()
+
+    /**
+     * 取 TA 的照片（只在卡上显示，不落盘）。每张照片算两次「第二份读」
+     * （拿链接一次、打开图片一次），所以同一颗星不并发重复问，拿不到的 10 分钟内不再问。
+     */
+    fun loadPhoto(n: Long) {
+        val missed = photoMissedAt[n]
+        if (missed != null && System.currentTimeMillis() - missed < PHOTO_RETRY_MS) return
+        if (!photoLoading.add(n)) return
+        viewModelScope.launch {
+            try {
+                val p = repo.photo(n)
+                if (p == null) {
+                    photoMissedAt[n] = System.currentTimeMillis()
+                } else {
+                    photoMissedAt.remove(n)
+                    _state.update { it.copy(cardPhotos = it.cardPhotos + (n to p)) }
+                }
+            } finally {
+                photoLoading.remove(n)
+            }
+        }
     }
 
     /** 打开一段私聊；返回 null 表示失败了（错误已经进 pageErrors）。 */
@@ -443,7 +470,7 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
             runCatching { repo.rate(world, score, text) }
                 .onSuccess { m ->
                     _state.update { it.copy(loading = false) }
-                    refreshAll()
+                    refreshMaps()
                     onDone("已记录：你的评分 ${m.mine ?: score}")
                 }
                 .onFailure { e ->
@@ -451,6 +478,12 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
                     onDone(describe(e))
                 }
         }
+
+    /** 打完分只刷新和地图有关的两份：我打过的地图、地图榜。 */
+    private fun refreshMaps() = viewModelScope.launch {
+        runCatching { repo.myMaps() }.onSuccess { m -> _state.update { it.copy(myMaps = m.maps) } }
+        runCatching { repo.boards() }.onSuccess { b -> _state.update { it.copy(boards = b.maps) } }
+    }
 
     fun clearHint() = _state.update { it.copy(hint = null) }
 
@@ -471,6 +504,8 @@ class MainViewModel(private val repo: Repository) : ViewModel() {
     fun showHint(text: String) = _state.update { it.copy(hint = text) }
 
     companion object {
+        private const val PHOTO_RETRY_MS = 10 * 60_000L
+
         fun factory(repo: Repository) = viewModelFactory {
             initializer { MainViewModel(repo) }
         }
@@ -539,5 +574,8 @@ private fun waitText(sec: Long): String = when {
     else -> "${(sec + 3599) / 3600} 小时后"
 }
 
-/** 自己的星编号：1.8.x 的 me/card 多了 n，照片要按它取才清晰。 */
-fun app.shixing.client.data.MyCard.myStarId(): Long? = (n ?: star)?.toLong()
+/**
+ * 自己的星编号：1.8.x 的 me/card 多了 n，照片要按它取才清晰。
+ * 不能拿 `star` 兜底：那是 /light/ 的点亮编号，和星编号 `n` 不是一套，拿去取照片会取到别人的。
+ */
+fun app.shixing.client.data.MyCard.myStarId(): Long? = n?.toLong()

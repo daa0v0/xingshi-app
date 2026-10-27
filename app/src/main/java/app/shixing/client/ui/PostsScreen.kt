@@ -39,27 +39,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.shixing.client.data.Groups
 import app.shixing.client.data.Post
-import app.shixing.client.legacy.LegacyViewModel
-import app.shixing.client.legacy.childObj
-import app.shixing.client.legacy.int
-import app.shixing.client.legacy.str
 import coil.compose.AsyncImage
-import kotlinx.serialization.json.JsonArray
 
 /**
- * 星友圈：上面「动态 / 榜单」两个子页，动态页里带星搭、筛选和刷动态。
- * 榜单页直接复用地图榜（评分入口仍在「我的」里）。
+ * 星友圈：上面「动态 / 榜单」两个子页，动态页里带筛选和刷动态。
+ * 榜单页直接复用地图榜，点一张图就能打分。
  */
 @Composable
-fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
-    val legacyState by legacyVm.state.collectAsState()
+fun PostsScreen(vm: MainViewModel, s: UiState) {
     var sub by remember { mutableStateOf(0) }
-    var filter by remember { mutableStateOf(0) } // 0 全部 1 好友 2 我的
     var showWrite by remember { mutableStateOf(false) }
-
-    val mine = legacyState.me?.childObj("me")
-    val xd = mine?.childObj("xd")
-    val rooms = (mine?.get("xdRooms") as? JsonArray)
 
     androidx.compose.runtime.LaunchedEffect(s.posts.map { it.author?.n }) {
         s.posts.forEach { p -> p.author?.n?.let { n -> if (s.cardPhotos[n] == null) vm.loadPhoto(n) } }
@@ -117,7 +106,6 @@ fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
             BoardPage(
                 maps = s.boards,
                 onBack = {},
-                onRate = { world -> vm.openMap(world) { m -> m?.let { vm.showHint("已拿到这张图的分") } } },
                 vm = vm,
                 showBack = false,
             )
@@ -129,58 +117,6 @@ fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            // 星搭：网页那排门票
-            Spacer(Modifier.height(14.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("星搭", fontSize = 12.sp, color = MaterialTheme_color.ink2)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "怎么玩 ›",
-                    fontSize = 12.sp,
-                    color = MaterialTheme_color.ink2,
-                    modifier = Modifier.clickable { vm.showHint("星搭：在地图里约个时间，等别人拿门票来。") },
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val tickets = rooms?.take(6) ?: emptyList()
-                tickets.forEach { el ->
-                    val o = el as? kotlinx.serialization.json.JsonObject
-                    TicketCard(
-                        title = o?.str("name") ?: o?.str("title") ?: "星搭",
-                        world = o?.str("worldName") ?: o?.str("map") ?: "",
-                        time = o?.int("start")?.let { clock(it.toLong()) } ?: "",
-                        joined = o?.int("seats") ?: 0,
-                    )
-                }
-                // 发一张门票
-                Column(
-                    Modifier
-                        .width(126.dp)
-                        .height(150.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x0DFFFFFF))
-                        .clickable { vm.showHint("发门票走网页的星搭表单，这块还没接。") },
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("＋", fontSize = 22.sp, color = MaterialTheme_color.ink2)
-                    Spacer(Modifier.height(6.dp))
-                    Text("发一张门票", fontSize = 12.sp, color = MaterialTheme_color.ink2)
-                }
-            }
-
             // 筛选
             Spacer(Modifier.height(14.dp))
             Row(
@@ -191,14 +127,15 @@ fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
                     .background(Color(0x0FFFFFFF))
                     .padding(3.dp),
             ) {
-                listOf("全部", "好友", "我的").forEachIndexed { idx, label ->
-                    val on = filter == idx
+                // 接口的 f：all 全部、friend 星友的、mine 自己的，由服务器筛。
+                listOf("all" to "全部", "friend" to "好友", "mine" to "我的").forEach { (key, label) ->
+                    val on = s.postsFilter == key
                     Box(
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(99.dp))
                             .background(if (on) Color(0x1FFFFFFF) else Color.Transparent)
-                            .clickable { filter = idx }
+                            .clickable { if (!on) vm.refreshPosts(key) }
                             .padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -219,11 +156,7 @@ fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
             Spacer(Modifier.height(12.dp))
             PageError(vm, s, "posts")
 
-            val list = when (filter) {
-                2 -> s.posts.filter { it.mine == true }
-                1 -> s.posts.filter { it.mine }
-                else -> s.posts
-            }
+            val list = s.posts
             if (list.isEmpty()) {
                 Empty("还没有动态。")
             } else {
@@ -234,31 +167,6 @@ fun PostsScreen(vm: MainViewModel, s: UiState, legacyVm: LegacyViewModel) {
                 }
             }
             Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-private fun TicketCard(title: String, world: String, time: String, joined: Int) {
-    Column(
-        Modifier
-            .width(126.dp)
-            .height(150.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0x14FFFFFF))
-            .padding(10.dp),
-    ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme_color.ink, maxLines = 1)
-        Spacer(Modifier.height(6.dp))
-        if (time.isNotBlank()) {
-            Text(time, fontSize = 12.sp, color = Color(0xFF2FD08A))
-        }
-        Spacer(Modifier.weight(1f))
-        if (world.isNotBlank()) {
-            Text(world, fontSize = 10.sp, color = MaterialTheme_color.ink2, maxLines = 1)
-        }
-        if (joined > 0) {
-            Text("$joined 人", fontSize = 10.sp, color = MaterialTheme_color.ink3)
         }
     }
 }
@@ -309,10 +217,10 @@ private fun PostCard(vm: MainViewModel, p: Post, photos: Map<Long, app.shixing.c
             Text(
                 "👍 ${p.lit}",
                 fontSize = 12.sp,
-                color = MaterialTheme_color.ink2,
+                color = if (p.litMe) MaterialTheme_color.accent else MaterialTheme_color.ink2,
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
-                    .clickable { vm.light(p.id, true) }
+                    .clickable { vm.toggleLight(p.id) }
                     .padding(horizontal = 6.dp, vertical = 4.dp),
             )
             Spacer(Modifier.width(10.dp))

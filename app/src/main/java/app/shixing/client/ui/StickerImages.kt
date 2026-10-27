@@ -32,10 +32,7 @@ object StickerImages {
     @Volatile
     var lastError: String? = null
 
-    /** 当前令牌：贴纸接口也要它，登录/连接成功后由 ViewModel 写进来。 */
-    @Volatile
-    var token: String? = null
-
+    /** 贴纸素材不用令牌（文档：不用 client，也不用令牌），所以这里只带 X-Client，不带 Authorization。 */
     suspend fun bitmap(url: String): Bitmap? {
         cache[url]?.let { return it }
         val bmp = withContext(Dispatchers.IO) {
@@ -43,7 +40,6 @@ object StickerImages {
                 val b = Request.Builder()
                     .url(url)
                     .header("X-Client", BuildConfig.CLIENT_ID)
-                token?.let { b.header("Authorization", "Bearer $it") }
                 client.newCall(b.build()).execute().use { r ->
                     if (!r.isSuccessful) {
                         lastError = "HTTP " + r.code

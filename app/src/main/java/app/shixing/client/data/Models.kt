@@ -303,6 +303,8 @@ data class Post(
     val mine: Boolean = false,
     val check: String? = null,
     val lit: Int = 0,
+    /** 我点亮过没有：点亮按钮按它决定这次是点亮还是取消。 */
+    val litMe: Boolean = false,
     val cmts: Int = 0,
     /** 作者：网页里可能叫 who 或 peer，星卡是 card，三种都收。 */
     val who: Peer? = null,
@@ -325,6 +327,10 @@ data class PostsResp(
     val posts: List<Post> = emptyList(),
     val page: Int? = null,
 )
+
+/** 点亮 / 取消的回答：带着改完以后的那条动态（`lit`、`litMe`）。 */
+@Serializable
+data class LightResp(val post: Post? = null)
 
 // ---- 我打过分的地图 ----
 

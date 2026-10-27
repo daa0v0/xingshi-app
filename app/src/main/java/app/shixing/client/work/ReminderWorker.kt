@@ -13,7 +13,8 @@ import app.shixing.client.notify.ReminderNotifier
  *
  * 三条自我约束：
  * 1. 没有令牌就直接返回，什么都不发；
- * 2. 每次先扣本地日配额，扣不到就跳过（四个个人接口合计每天 300 次的上限）；
+ * 2. 15 分钟一轮，远大于官方要求的 25 秒间隔；提醒轮询官方没有每天上限，不扣本地日配额，
+ *    免得后台把「星轨 / 互相连上 / 最近提醒」这些前台要用的次数吃掉；
  * 3. 首次只记基线不提醒，避免刚连上就弹一堆历史提醒。
  */
 class ReminderWorker(
@@ -24,8 +25,6 @@ class ReminderWorker(
     override suspend fun doWork(): Result {
         val store = TokenStore(applicationContext)
         store.token() ?: return Result.success()
-
-        if (!store.takeDailyQuota()) return Result.success()
 
         val client = VrccClient(token = { store.token() })
 
